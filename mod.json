@@ -1,0 +1,26 @@
+{
+    "geode": "4.10.0",
+    "gd": {
+        "win": "2.2074",
+        "android": "2.2074",
+        "mac": "2.2074",
+        "ios": "2.2074"
+    },
+    "id": "baconmania.menuhotkeys",
+    "name": "MenuHotkeys",
+    "version": "v1.0.0",
+    "developer": "BaconMania",
+    "description": "Adds hotkeys for almost every menu in game, no mouse required!",
+    "tags": [
+        "utility", 
+        "hotkeys", 
+        "qol"
+    ],
+    "dependencies": [
+        {
+            "id": "geode.custom-keybinds",
+            "version": ">=1.0.0",
+            "required": true
+        }
+    ]
+}
