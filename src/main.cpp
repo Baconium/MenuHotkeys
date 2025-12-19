@@ -6,6 +6,8 @@
 #include <Geode/modify/LevelBrowserLayer.hpp>
 #include <Geode/modify/EditLevelLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
+#include <Geode/modify/LevelSelectLayer.hpp>
+
 
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
@@ -397,6 +399,15 @@ $execute {
         "Pause Menu"
     });
 
+    manager->registerBindable({
+        "select-play",
+        "Play",
+        "Plays the current level in the level select menu",
+        { Keybind::create(KEY_Up, Modifier::None) },
+        "Level Select Menu"
+    });
+
+
     static constexpr auto listKeys = std::array{
         KEY_One, KEY_Two, KEY_Three, KEY_Four, KEY_Five,
         KEY_Six, KEY_Seven, KEY_Eight, KEY_Nine, KEY_Zero
@@ -411,6 +422,31 @@ $execute {
             { Keybind::create(listKeys[idx], Modifier::None) },
             "Created Levels Menu"
         });
+    }
+}
+
+// small helper because ExtendedLayer "level-pages" keeps 3 levels loaded at the same time
+
+static void clickCurrentLevel(LevelSelectLayer* self) {
+    if (!self) return;
+
+    auto pages = findByIDRecursive(self, "level-pages");
+    if (!pages) return;
+
+    auto children = pages->getChildren();
+    if (!children || children->count() < 2) return;
+
+    auto currentPage = typeinfo_cast<CCNode*>(children->objectAtIndex(1));
+    if (!currentPage) return;
+
+    auto menu = findByIDRecursive(currentPage, "level-menu");
+    if (!menu) return;
+
+    auto btn = findByIDRecursive(menu, "level-button");
+    if (!btn) return;
+
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
+        item->activate();
     }
 }
 
@@ -696,4 +732,28 @@ class $modify(MyEditLevelLayer, EditLevelLayer) {
     }
 };
 
+// level select hook
 
+class $modify(MyLevelSelectLayer, LevelSelectLayer) {
+    bool init(int page) {
+        if (!LevelSelectLayer::init(page)) return false;
+
+        kbutil::resetAll();
+
+        this->template addEventListener<InvokeBindFilter>(
+            [this](InvokeBindEvent* event) {
+                if (!kbutil::isLayerActive<LevelSelectLayer>())
+                    return ListenerResult::Propagate;
+
+                if (kbutil::pressedOnce("select-play", event)) {
+                    clickCurrentLevel(this);
+                }
+
+                return ListenerResult::Propagate;
+            },
+            "select-play"
+        );
+
+        return true;
+    }
+};
