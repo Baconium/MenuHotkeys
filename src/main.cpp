@@ -7,7 +7,8 @@
 #include <Geode/modify/EditLevelLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/LevelSelectLayer.hpp>
-
+#include <Geode/modify/LevelAreaLayer.hpp>
+#include <Geode/modify/LevelAreaInnerLayer.hpp>
 
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
@@ -20,6 +21,9 @@
 #include <vector>
 #include <algorithm>
 #include <array>
+#include <limits>
+#include <cmath>
+#include <functional>
 
 using namespace geode::prelude;
 using namespace keybinds;
@@ -46,17 +50,27 @@ namespace kbutil {
     inline bool isLayerActive() {
         auto scene = CCDirector::sharedDirector()->getRunningScene();
         if (!scene) return false;
-        
-        auto children = scene->getChildren();
-        if (!children) return false;
-        
-        CCObject* obj = nullptr;
-        CCARRAY_FOREACH(children, obj) {
-            if (typeinfo_cast<T*>(obj)) {
+
+        std::function<bool(CCNode*)> walk = [&](CCNode* node) -> bool {
+            if (!node) return false;
+
+            if (typeinfo_cast<T*>(node)) {
                 return true;
             }
-        }
-        return false;
+
+            auto children = node->getChildren();
+            if (!children) return false;
+
+            CCObject* obj = nullptr;
+            CCARRAY_FOREACH(children, obj) {
+                if (walk(static_cast<CCNode*>(obj))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        return walk(scene);
     }
 }
 
@@ -148,6 +162,46 @@ $execute {
         "Play",
         "Play button",
         { Keybind::create(KEY_Up, Modifier::None) },
+        "Main Menu"
+    });
+
+    manager->registerBindable({
+        "main-menu-profile",
+        "Profile",
+        "Profile button",
+        { Keybind::create(KEY_P, Modifier::None) },
+        "Main Menu"
+    });
+
+    manager->registerBindable({
+        "main-menu-chests",
+        "Chests",
+        "Chests button",
+        { Keybind::create(KEY_C, Modifier::None) },
+        "Main Menu"
+    });
+
+    manager->registerBindable({
+        "main-menu-achievements",
+        "Achievements",
+        "Achievements button",
+        { Keybind::create(KEY_A, Modifier::None) },
+        "Main Menu"
+    });
+
+    manager->registerBindable({
+        "main-menu-settings",
+        "Settings",
+        "Settings button",
+        { Keybind::create(KEY_S, Modifier::None) },
+        "Main Menu"
+    });
+
+    manager->registerBindable({
+        "main-menu-stats",
+        "Stats",
+        "Stats button",
+        { Keybind::create(KEY_I, Modifier::None) },
         "Main Menu"
     });
 
@@ -407,6 +461,93 @@ $execute {
         "Level Select Menu"
     });
 
+    manager->registerBindable({
+        "select-tower",
+        "Enter Tower",
+        "Enters the tower in the enter the tower menu (I'm really good at writing these descriptions aren't I)",
+        { Keybind::create(KEY_Up, Modifier::None) },
+        "Level Select Menu"
+    });
+
+    manager->registerBindable({
+        "tower-open-5001",
+        "Open Tower Level 1",
+        "Activates the Tower door: level-5001-button",
+        { Keybind::create(KEY_One, Modifier::None) },
+        "Tower"
+    });
+
+    manager->registerBindable({
+        "tower-open-5002",
+        "Open Tower Level 2",
+        "Activates the Tower door: level-5002-button",
+        { Keybind::create(KEY_Two, Modifier::None) },
+        "Tower"
+    });
+
+    manager->registerBindable({
+        "tower-open-5003",
+        "Open Tower Level 3",
+        "Activates the Tower door: level-5003-button",
+        { Keybind::create(KEY_Three, Modifier::None) },
+        "Tower"
+    });
+
+    manager->registerBindable({
+        "tower-open-5004",
+        "Open Tower Level 4",
+        "Activates the Tower door: level-5004-button",
+        { Keybind::create(KEY_Four, Modifier::None) },
+        "Tower"
+    });
+
+    manager->registerBindable({
+        "saved-delete",
+        "Delete",
+        "Deletes the level in the saved levels menu",
+        { Keybind::create(KEY_Delete, Modifier::None) },
+        "Saved Levels Menu"
+    });
+
+    manager->registerBindable({
+        "saved-switch-mode",
+        "Switch Mode",
+        "Switches the mode in the saved levels menu",
+        { Keybind::create(KEY_T, Modifier::None) },
+        "Saved Levels Menu"
+    });
+
+    manager->registerBindable({
+        "saved-favorite",
+        "Favorite",
+        "Shows favorited levels in the saved levels menu",
+        { Keybind::create(KEY_F, Modifier::None) },
+        "Saved Levels Menu"
+    });
+
+    manager->registerBindable({
+        "saved-search",
+        "Search",
+        "Opens the search box in the saved levels menu",
+        { Keybind::create(KEY_F, Modifier::Control) },
+        "Saved Levels Menu"
+    });
+
+    manager->registerBindable({
+        "saved-last-page",
+        "Last Page",
+        "Goes to the last page in the saved levels menu",
+        { Keybind::create(KEY_Right, Modifier::Control) },
+        "Saved Levels Menu"
+    });
+
+    manager->registerBindable({
+        "saved-folder",
+        "Folder",
+        "Opens the folder menu in the saved levels menu",
+        { Keybind::create(KEY_F, Modifier::None) },
+        "Saved Levels Menu"
+    });
 
     static constexpr auto listKeys = std::array{
         KEY_One, KEY_Two, KEY_Three, KEY_Four, KEY_Five,
@@ -426,6 +567,7 @@ $execute {
 }
 
 // small helper because ExtendedLayer "level-pages" keeps 3 levels loaded at the same time
+// (I am aware that this is ABSOLUTELY the worst way to implement a fix to this)
 
 static void clickCurrentLevel(LevelSelectLayer* self) {
     if (!self) return;
@@ -434,12 +576,39 @@ static void clickCurrentLevel(LevelSelectLayer* self) {
     if (!pages) return;
 
     auto children = pages->getChildren();
-    if (!children || children->count() < 2) return;
+    if (!children || children->count() == 0) return;
 
-    auto currentPage = typeinfo_cast<CCNode*>(children->objectAtIndex(1));
-    if (!currentPage) return;
+    auto win = CCDirector::sharedDirector()->getWinSize();
+    CCPoint screenCenterWorld = ccp(win.width * 0.5f, win.height * 0.5f);
 
-    auto menu = findByIDRecursive(currentPage, "level-menu");
+    CCPoint centerLocal = pages->convertToNodeSpace(screenCenterWorld);
+
+    CCNode* bestPage = nullptr;
+    float bestDist = std::numeric_limits<float>::infinity();
+
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        auto node = typeinfo_cast<CCNode*>(obj);
+        if (!node) continue;
+
+        if (!findByIDRecursive(node, "level-menu")) continue;
+
+        auto sz = node->getContentSize();
+        CCPoint pageCenter = node->getPosition() + ccp(sz.width * 0.5f, sz.height * 0.5f);
+
+        float dx = pageCenter.x - centerLocal.x;
+        float dy = pageCenter.y - centerLocal.y;
+        float dist = dx * dx + dy * dy;
+
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestPage = node;
+        }
+    }
+
+    if (!bestPage) return;
+
+    auto menu = findByIDRecursive(bestPage, "level-menu");
     if (!menu) return;
 
     auto btn = findByIDRecursive(menu, "level-button");
@@ -481,6 +650,46 @@ class $modify(MyMenuLayer, MenuLayer) {
             }
             return ListenerResult::Propagate;
         }, "main-menu-play");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "profile-menu", "profile-button");
+            }
+            return ListenerResult::Propagate;
+        }, "main-menu-profile");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "right-side-menu", "daily-chest-button");
+            }
+            return ListenerResult::Propagate;
+        }, "main-menu-chests");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "bottom-menu", "achievements-button");
+            }
+            return ListenerResult::Propagate;
+        }, "main-menu-achievements");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "bottom-menu", "settings-button");
+            }
+            return ListenerResult::Propagate;
+        }, "main-menu-settings");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "bottom-menu", "stats-button");
+            }
+            return ListenerResult::Propagate;
+        }, "main-menu-stats");
 
         return true;
     }
@@ -622,7 +831,7 @@ class $modify(MyCreatorLayer, CreatorLayer) {
     }
 };
 
-// created levels hook
+// created levels hook (and saved levels hook)
 
 class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
     bool init(GJSearchObject* object) {
@@ -645,6 +854,62 @@ class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
             }
             return ListenerResult::Propagate;
         }, "create-last-page");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "delete-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-delete");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "switch-mode-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-switch-mode");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "favorite-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-favorite");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "search-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-search");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "last-page-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-last-page");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-folder", "folder-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-folder");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "saved-menu", "folder-button");
+            }
+            return ListenerResult::Propagate;
+        }, "saved-folder");
 
         for (int i = 1; i <= 10; i++) {
             std::string bindID = fmt::format("lists-open-{}", i);
@@ -753,6 +1018,82 @@ class $modify(MyLevelSelectLayer, LevelSelectLayer) {
             },
             "select-play"
         );
+
+        return true;
+    }
+};
+
+// tower menu hook
+
+class $modify(MyLevelAreaLayer, LevelAreaLayer) {
+    bool init() {
+        if (!LevelAreaLayer::init()) return false;
+
+        kbutil::resetAll();
+
+        auto sceneRoot = []() -> CCNode* {
+            auto scene = CCDirector::sharedDirector()->getRunningScene();
+            return scene ? static_cast<CCNode*>(scene) : nullptr;
+        };
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("select-tower", event)) {
+                clickButton(sceneRoot(), "enter-menu", "enter-btn");
+            }
+            return ListenerResult::Propagate;
+        }, "select-tower");
+
+        return true;
+    }
+};
+
+// tower menu hook 2: electric boogaloo
+
+class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
+    bool init(bool returning) {
+        if (!LevelAreaInnerLayer::init(returning)) return false;
+
+        kbutil::resetAll();
+
+        auto sceneRoot = []() -> CCNode* {
+            auto scene = CCDirector::sharedDirector()->getRunningScene();
+            return scene ? static_cast<CCNode*>(scene) : nullptr;
+        };
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("select-tower", event)) {
+                clickButton(sceneRoot(), "enter-menu", "enter-btn");
+            }
+            return ListenerResult::Propagate;
+        }, "select-tower");
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("tower-open-5001", event)) {
+                clickButton(sceneRoot(), "main-menu", "level-5001-button");
+            }
+            return ListenerResult::Propagate;
+        }, "tower-open-5001");
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("tower-open-5002", event)) {
+                clickButton(sceneRoot(), "main-menu", "level-5002-button");
+            }
+            return ListenerResult::Propagate;
+        }, "tower-open-5002");
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("tower-open-5003", event)) {
+                clickButton(sceneRoot(), "main-menu", "level-5003-button");
+            }
+            return ListenerResult::Propagate;
+        }, "tower-open-5003");
+
+        this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
+            if (kbutil::pressedOnce("tower-open-5004", event)) {
+                clickButton(sceneRoot(), "main-menu", "level-5004-button");
+            }
+            return ListenerResult::Propagate;
+        }, "tower-open-5004");
 
         return true;
     }
