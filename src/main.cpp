@@ -9,12 +9,16 @@
 #include <Geode/modify/LevelSelectLayer.hpp>
 #include <Geode/modify/LevelAreaLayer.hpp>
 #include <Geode/modify/LevelAreaInnerLayer.hpp>
+#include <Geode/modify/ChallengesPage.hpp>
+#include <Geode/modify/GauntletSelectLayer.hpp>
+#include <Geode/modify/GauntletLayer.hpp>
 
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
 #include <Geode/binding/LevelCell.hpp>
 #include <Geode/binding/LevelListCell.hpp>
 #include <Geode/binding/MapPackCell.hpp>
+#include <Geode/binding/ChallengeNode.hpp>
 
 #include <geode.custom-keybinds/include/Keybinds.hpp>
 
@@ -29,6 +33,8 @@
 
 using namespace geode::prelude;
 using namespace keybinds;
+
+// helpers type stuff
 
 namespace kbutil {
     inline std::unordered_set<std::string> s_heldBinds;
@@ -48,7 +54,7 @@ namespace kbutil {
         s_heldBinds.clear();
     }
 
-    template<typename T>
+    template <typename T>
     inline bool isLayerActive() {
         auto scene = CCDirector::sharedDirector()->getRunningScene();
         if (!scene) return false;
@@ -109,10 +115,77 @@ static void clickButton(CCNode* parentLayer, std::string const& menuID, std::str
     clickButtonRecursive(parentLayer, menuID, buttonID);
 }
 
-// Supports:
-// - LevelCell (levels)
-// - LevelListCell (lists)
-// - MapPackCell (map packs)
+static CCMenuItemSpriteExtra* findFirstMenuItemSpriteExtra(CCNode* root) {
+    if (!root) return nullptr;
+
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) {
+        return item;
+    }
+
+    auto children = root->getChildren();
+    if (!children) return nullptr;
+
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        if (auto found = findFirstMenuItemSpriteExtra(static_cast<CCNode*>(obj))) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+static bool listIsMapPacks(LevelBrowserLayer* self) {
+    if (!self) return false;
+
+    auto listViewNode = findByIDRecursive(self, "list-view");
+    auto listView = typeinfo_cast<CustomListView*>(listViewNode);
+    if (!listView || !listView->m_tableView || !listView->m_tableView->m_contentLayer) return false;
+
+    auto children = listView->m_tableView->m_contentLayer->getChildren();
+    if (!children) return false;
+
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        if (typeinfo_cast<MapPackCell*>(obj)) return true;
+    }
+    return false;
+}
+
+static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
+    if (!self || n <= 0) return false;
+
+    auto listViewNode = findByIDRecursive(self, "list-view");
+    auto listView = typeinfo_cast<CustomListView*>(listViewNode);
+    if (!listView || !listView->m_tableView || !listView->m_tableView->m_contentLayer) return false;
+
+    auto content = listView->m_tableView->m_contentLayer;
+    auto children = content->getChildren();
+    if (!children) return false;
+
+    std::vector<MapPackCell*> cells;
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        if (auto c = typeinfo_cast<MapPackCell*>(obj)) {
+            cells.push_back(c);
+        }
+    }
+
+    if ((int)cells.size() < n) return false;
+
+    std::sort(cells.begin(), cells.end(), [](CCNode* a, CCNode* b) {
+        return a->getPositionY() > b->getPositionY();
+    });
+
+    auto target = cells[n - 1];
+
+    if (auto item = findFirstMenuItemSpriteExtra(target)) {
+        item->activate();
+        return true;
+    }
+
+    return false;
+}
+
 static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     if (!self || n <= 0) return false;
 
@@ -127,9 +200,7 @@ static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     std::vector<CCNode*> cells;
     CCObject* obj = nullptr;
     CCARRAY_FOREACH(children, obj) {
-        if (typeinfo_cast<LevelCell*>(obj) ||
-            typeinfo_cast<LevelListCell*>(obj) ||
-            typeinfo_cast<MapPackCell*>(obj)) {
+        if (typeinfo_cast<LevelCell*>(obj) || typeinfo_cast<LevelListCell*>(obj)) {
             cells.push_back(static_cast<CCNode*>(obj));
         }
     }
@@ -142,14 +213,77 @@ static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
 
     auto target = cells[n - 1];
 
-    // Works for LevelCell / LevelListCell / MapPackCell in practice (same IDs inside cell)
     clickButtonRecursive(target, "main-menu", "view-button");
-
-    // Optional fallback (won't do anything if it doesn't exist)
-    // clickButtonRecursive(target, "main-menu", "select-button");
-
     return true;
 }
+
+static void collectByIDRecursive(CCNode* root, std::string const& id, std::vector<CCNode*>& out) {
+    if (!root) return;
+
+    if (root->getID() == id) {
+        out.push_back(root);
+    }
+
+    auto children = root->getChildren();
+    if (!children) return;
+
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        collectByIDRecursive(static_cast<CCNode*>(obj), id, out);
+    }
+}
+
+static void clickCurrentLevel(LevelSelectLayer* self) {
+    if (!self) return;
+
+    auto pages = findByIDRecursive(self, "level-pages");
+    if (!pages) return;
+
+    auto children = pages->getChildren();
+    if (!children || children->count() == 0) return;
+
+    auto win = CCDirector::sharedDirector()->getWinSize();
+    CCPoint screenCenterWorld = ccp(win.width * 0.5f, win.height * 0.5f);
+
+    CCPoint centerLocal = pages->convertToNodeSpace(screenCenterWorld);
+
+    CCNode* bestPage = nullptr;
+    float bestDist = std::numeric_limits<float>::infinity();
+
+    CCObject* obj = nullptr;
+    CCARRAY_FOREACH(children, obj) {
+        auto node = typeinfo_cast<CCNode*>(obj);
+        if (!node) continue;
+
+        if (!findByIDRecursive(node, "level-menu")) continue;
+
+        auto sz = node->getContentSize();
+        CCPoint pageCenter = node->getPosition() + ccp(sz.width * 0.5f, sz.height * 0.5f);
+
+        float dx = pageCenter.x - centerLocal.x;
+        float dy = pageCenter.y - centerLocal.y;
+        float dist = dx * dx + dy * dy;
+
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestPage = node;
+        }
+    }
+
+    if (!bestPage) return;
+
+    auto menu = findByIDRecursive(bestPage, "level-menu");
+    if (!menu) return;
+
+    auto btn = findByIDRecursive(menu, "level-button");
+    if (!btn) return;
+
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
+        item->activate();
+    }
+}
+
+// keybinds
 
 $execute {
     BindManager* manager = BindManager::get();
@@ -562,6 +696,94 @@ $execute {
         "Saved Levels Menu"
     });
 
+    manager->registerBindable({
+        "quests-claim-top",
+        "Claim Quest 1 (Top)",
+        "Claims the top quest reward (if available)",
+        { Keybind::create(KEY_One, Modifier::None) },
+        "Quests Menu"
+    });
+
+    manager->registerBindable({
+        "quests-claim-mid",
+        "Claim Quest 2 (Middle)",
+        "Claims the middle quest reward (if available)",
+        { Keybind::create(KEY_Two, Modifier::None) },
+        "Quests Menu"
+    });
+
+    manager->registerBindable({
+        "quests-claim-bot",
+        "Claim Quest 3 (Bottom)",
+        "Claims the bottom quest reward (if available)",
+        { Keybind::create(KEY_Three, Modifier::None) },
+        "Quests Menu"
+    });
+
+    manager->registerBindable({
+        "quests-claim-all",
+        "Claim All Quests",
+        "Claims all available quest rewards",
+        {Keybind::create(KEY_Enter, Modifier::None) },
+        "Quests Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-left",
+        "Previous Page",
+        "Goes back a page in the gauntlets menu",
+        { Keybind::create(KEY_Left, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-right",
+        "Next Page",
+        "Goes forward a page in the gauntlets menu",
+        { Keybind::create(KEY_Right, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-1",
+        "Level 1",
+        "Selects level 1 in the gauntlets menu",
+        { Keybind::create(KEY_One, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-2",
+        "Level 2",
+        "Selects level 2 in the gauntlets menu",
+        { Keybind::create(KEY_Two, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-3",
+        "Level 3",
+        "Selects level 3 in the gauntlets menu",
+        { Keybind::create(KEY_Three, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-4",
+        "Level 4",
+        "Selects level 4 in the gauntlets menu",
+        { Keybind::create(KEY_Four, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
+    manager->registerBindable({
+        "gauntlet-5",
+        "Level 5",
+        "Selects level 5 in the gauntlets menu",
+        { Keybind::create(KEY_Five, Modifier::None) },
+        "Gauntlets Menu"
+    });
+
     static constexpr auto listKeys = std::array{
         KEY_One, KEY_Two, KEY_Three, KEY_Four, KEY_Five,
         KEY_Six, KEY_Seven, KEY_Eight, KEY_Nine, KEY_Zero
@@ -579,59 +801,8 @@ $execute {
     }
 }
 
-// small helper because ExtendedLayer "level-pages" keeps 3 levels loaded at the same time
-// (I am aware that this is ABSOLUTELY the worst way to implement a fix to this)
-static void clickCurrentLevel(LevelSelectLayer* self) {
-    if (!self) return;
-
-    auto pages = findByIDRecursive(self, "level-pages");
-    if (!pages) return;
-
-    auto children = pages->getChildren();
-    if (!children || children->count() == 0) return;
-
-    auto win = CCDirector::sharedDirector()->getWinSize();
-    CCPoint screenCenterWorld = ccp(win.width * 0.5f, win.height * 0.5f);
-
-    CCPoint centerLocal = pages->convertToNodeSpace(screenCenterWorld);
-
-    CCNode* bestPage = nullptr;
-    float bestDist = std::numeric_limits<float>::infinity();
-
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        auto node = typeinfo_cast<CCNode*>(obj);
-        if (!node) continue;
-
-        if (!findByIDRecursive(node, "level-menu")) continue;
-
-        auto sz = node->getContentSize();
-        CCPoint pageCenter = node->getPosition() + ccp(sz.width * 0.5f, sz.height * 0.5f);
-
-        float dx = pageCenter.x - centerLocal.x;
-        float dy = pageCenter.y - centerLocal.y;
-        float dist = dx * dx + dy * dy;
-
-        if (dist < bestDist) {
-            bestDist = dist;
-            bestPage = node;
-        }
-    }
-
-    if (!bestPage) return;
-
-    auto menu = findByIDRecursive(bestPage, "level-menu");
-    if (!menu) return;
-
-    auto btn = findByIDRecursive(menu, "level-button");
-    if (!btn) return;
-
-    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
-        item->activate();
-    }
-}
-
 // main menu hook
+
 class $modify(MyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
@@ -707,6 +878,7 @@ class $modify(MyMenuLayer, MenuLayer) {
 };
 
 // icon kit hook
+
 class $modify(MyGarageLayer, GJGarageLayer) {
     bool init() {
         if (!GJGarageLayer::init()) return false;
@@ -734,6 +906,7 @@ class $modify(MyGarageLayer, GJGarageLayer) {
 };
 
 // online hook
+
 class $modify(MyCreatorLayer, CreatorLayer) {
     bool init() {
         if (!CreatorLayer::init()) return false;
@@ -841,6 +1014,7 @@ class $modify(MyCreatorLayer, CreatorLayer) {
 };
 
 // created levels hook (and saved levels hook)
+
 class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
     bool init(GJSearchObject* object) {
         if (!LevelBrowserLayer::init(object)) return false;
@@ -926,7 +1100,11 @@ class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
                 if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
                 if (kbutil::pressedOnce(bindID, event)) {
                     if (findByIDRecursive(this, "list-view")) {
-                        openNthVisibleListEntry(this, i);
+                        if (listIsMapPacks(this)) {
+                            openNthVisibleMapPackEntry(this, i);
+                        } else {
+                            openNthVisibleListEntry(this, i);
+                        }
                     }
                 }
                 return ListenerResult::Propagate;
@@ -938,6 +1116,7 @@ class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
 };
 
 // level edit page hook
+
 class $modify(MyEditLevelLayer, EditLevelLayer) {
     bool init(GJGameLevel* level) {
         if (!EditLevelLayer::init(level)) return false;
@@ -1005,6 +1184,7 @@ class $modify(MyEditLevelLayer, EditLevelLayer) {
 };
 
 // level select hook
+
 class $modify(MyLevelSelectLayer, LevelSelectLayer) {
     bool init(int page) {
         if (!LevelSelectLayer::init(page)) return false;
@@ -1029,7 +1209,7 @@ class $modify(MyLevelSelectLayer, LevelSelectLayer) {
     }
 };
 
-// tower menu hook
+// tower hook
 class $modify(MyLevelAreaLayer, LevelAreaLayer) {
     bool init() {
         if (!LevelAreaLayer::init()) return false;
@@ -1052,7 +1232,8 @@ class $modify(MyLevelAreaLayer, LevelAreaLayer) {
     }
 };
 
-// tower menu hook 2: electric boogaloo
+// tower hook 2: electric boogaloo
+
 class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
     bool init(bool returning) {
         if (!LevelAreaInnerLayer::init(returning)) return false;
@@ -1098,6 +1279,135 @@ class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
             }
             return ListenerResult::Propagate;
         }, "tower-open-5004");
+
+        return true;
+    }
+};
+
+// quests hook
+
+class $modify(MyChallengesPage, ChallengesPage) {
+    bool init() {
+        if (!ChallengesPage::init()) return false;
+
+        kbutil::resetAll();
+
+        auto claimQuest = [this](std::string const& questNodeID) {
+            auto mainLayer = this->getChildByID("main-layer");
+            if (!mainLayer) return;
+
+            auto questNode = mainLayer->getChildByID(questNodeID);
+            if (questNode) {
+                clickButtonRecursive(questNode, "claim-menu", "claim-button");
+            }
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+
+            if (event->isDown()) {
+                claimQuest("top-quest");
+                claimQuest("middle-quest");
+                claimQuest("bottom-quest");
+            }
+            return ListenerResult::Propagate;
+        }, "quests-claim-all");
+
+        this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (event->isDown()) claimQuest("top-quest");
+            return ListenerResult::Propagate;
+        }, "quests-claim-top");
+
+        this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (event->isDown()) claimQuest("middle-quest");
+            return ListenerResult::Propagate;
+        }, "quests-claim-mid");
+
+        this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (event->isDown()) claimQuest("bottom-quest");
+            return ListenerResult::Propagate;
+        }, "quests-claim-bot");
+
+        return true;
+    }
+};
+
+// gauntlet select hook
+
+class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
+    bool init(int unused) {
+        if (!GauntletSelectLayer::init(unused)) return false;
+
+        kbutil::resetAll();
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletSelectLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "scroll-buttons-menu", "left-button");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-left");
+        
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletSelectLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "scroll-buttons-menu", "right-button");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-right");
+
+        return true;
+    }
+};
+
+class $modify(MyGauntletLayer, GauntletLayer) {
+    bool init(GauntletType type) {
+        if (!GauntletLayer::init(type)) return false;
+
+        kbutil::resetAll();
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "levels-menu", "level-1");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-1");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "levels-menu", "level-2");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-2");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "levels-menu", "level-3");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-3");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "levels-menu", "level-4");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-4");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "levels-menu", "level-5");
+            }
+            return ListenerResult::Propagate;
+        }, "gauntlet-5");
 
         return true;
     }
