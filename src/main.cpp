@@ -13,6 +13,8 @@
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
 #include <Geode/binding/LevelCell.hpp>
+#include <Geode/binding/LevelListCell.hpp>
+#include <Geode/binding/MapPackCell.hpp>
 
 #include <geode.custom-keybinds/include/Keybinds.hpp>
 
@@ -107,6 +109,10 @@ static void clickButton(CCNode* parentLayer, std::string const& menuID, std::str
     clickButtonRecursive(parentLayer, menuID, buttonID);
 }
 
+// Supports:
+// - LevelCell (levels)
+// - LevelListCell (lists)
+// - MapPackCell (map packs)
 static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     if (!self || n <= 0) return false;
 
@@ -118,23 +124,30 @@ static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     auto children = content->getChildren();
     if (!children) return false;
 
-    std::vector<LevelCell*> cells;
+    std::vector<CCNode*> cells;
     CCObject* obj = nullptr;
     CCARRAY_FOREACH(children, obj) {
-        if (auto cell = typeinfo_cast<LevelCell*>(obj)) {
-            cells.push_back(cell);
+        if (typeinfo_cast<LevelCell*>(obj) ||
+            typeinfo_cast<LevelListCell*>(obj) ||
+            typeinfo_cast<MapPackCell*>(obj)) {
+            cells.push_back(static_cast<CCNode*>(obj));
         }
     }
 
     if ((int)cells.size() < n) return false;
 
-    std::sort(cells.begin(), cells.end(), [](LevelCell* a, LevelCell* b) {
+    std::sort(cells.begin(), cells.end(), [](CCNode* a, CCNode* b) {
         return a->getPositionY() > b->getPositionY();
     });
 
     auto target = cells[n - 1];
 
+    // Works for LevelCell / LevelListCell / MapPackCell in practice (same IDs inside cell)
     clickButtonRecursive(target, "main-menu", "view-button");
+
+    // Optional fallback (won't do anything if it doesn't exist)
+    // clickButtonRecursive(target, "main-menu", "select-button");
+
     return true;
 }
 
@@ -568,7 +581,6 @@ $execute {
 
 // small helper because ExtendedLayer "level-pages" keeps 3 levels loaded at the same time
 // (I am aware that this is ABSOLUTELY the worst way to implement a fix to this)
-
 static void clickCurrentLevel(LevelSelectLayer* self) {
     if (!self) return;
 
@@ -620,7 +632,6 @@ static void clickCurrentLevel(LevelSelectLayer* self) {
 }
 
 // main menu hook
-
 class $modify(MyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
@@ -696,7 +707,6 @@ class $modify(MyMenuLayer, MenuLayer) {
 };
 
 // icon kit hook
-
 class $modify(MyGarageLayer, GJGarageLayer) {
     bool init() {
         if (!GJGarageLayer::init()) return false;
@@ -724,7 +734,6 @@ class $modify(MyGarageLayer, GJGarageLayer) {
 };
 
 // online hook
-
 class $modify(MyCreatorLayer, CreatorLayer) {
     bool init() {
         if (!CreatorLayer::init()) return false;
@@ -832,7 +841,6 @@ class $modify(MyCreatorLayer, CreatorLayer) {
 };
 
 // created levels hook (and saved levels hook)
-
 class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
     bool init(GJSearchObject* object) {
         if (!LevelBrowserLayer::init(object)) return false;
@@ -930,7 +938,6 @@ class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
 };
 
 // level edit page hook
-
 class $modify(MyEditLevelLayer, EditLevelLayer) {
     bool init(GJGameLevel* level) {
         if (!EditLevelLayer::init(level)) return false;
@@ -998,7 +1005,6 @@ class $modify(MyEditLevelLayer, EditLevelLayer) {
 };
 
 // level select hook
-
 class $modify(MyLevelSelectLayer, LevelSelectLayer) {
     bool init(int page) {
         if (!LevelSelectLayer::init(page)) return false;
@@ -1024,7 +1030,6 @@ class $modify(MyLevelSelectLayer, LevelSelectLayer) {
 };
 
 // tower menu hook
-
 class $modify(MyLevelAreaLayer, LevelAreaLayer) {
     bool init() {
         if (!LevelAreaLayer::init()) return false;
@@ -1048,7 +1053,6 @@ class $modify(MyLevelAreaLayer, LevelAreaLayer) {
 };
 
 // tower menu hook 2: electric boogaloo
-
 class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
     bool init(bool returning) {
         if (!LevelAreaInnerLayer::init(returning)) return false;
