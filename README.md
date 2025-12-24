@@ -1,1 +1,3 @@
 This mod is still a WIP, and therefore does not have any releases yet. you can build it yourself locally, or fork this repo and use the workflow if you want to use it before it's finished (not recommended)
+
+all hotkeys are able to be bound in the "keys" section of the options menu in game
