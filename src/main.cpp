@@ -1,5 +1,6 @@
 #include <Geode/Geode.hpp>
 
+
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/GJGarageLayer.hpp>
 #include <Geode/modify/CreatorLayer.hpp>
@@ -34,14 +35,73 @@
 using namespace geode::prelude;
 using namespace keybinds;
 
-// helpers type stuff
+// helpers
+
+static inline std::vector<CCNode*> safeNodeChildren(CCNode* node) {
+    std::vector<CCNode*> out;
+    if (!node) return out;
+
+    auto children = node->getChildren();
+    if (!children) return out;
+
+    out.reserve(static_cast<size_t>(children->count()));
+    for (int i = 0; i < children->count(); i++) {
+        auto obj = children->objectAtIndex(i);
+        if (auto ch = typeinfo_cast<CCNode*>(obj)) {
+            out.push_back(ch);
+        }
+    }
+    return out;
+}
+
+static inline bool nodeLooksAlive(CCNode* n) {
+    return n && n->getParent() != nullptr;
+}
+
+static inline bool nodeIsRunningVisible(CCNode* n) {
+    return n && nodeLooksAlive(n) && n->isRunning() && n->isVisible();
+}
+
+template <typename T>
+static inline T* findFirstOfTypeRecursive(CCNode* root) {
+    if (!root) return nullptr;
+    if (auto t = typeinfo_cast<T*>(root)) return t;
+    for (auto ch : safeNodeChildren(root)) {
+        if (auto found = findFirstOfTypeRecursive<T>(ch)) return found;
+    }
+    return nullptr;
+}
+
+
+template <typename T>
+static inline T* getFrontmostLayerOfType() {
+    auto scene = CCDirector::sharedDirector()->getRunningScene();
+    if (!scene) return nullptr;
+
+    auto kids = safeNodeChildren(scene);
+    if (kids.empty()) return nullptr;
+
+
+    std::stable_sort(kids.begin(), kids.end(), [](CCNode* a, CCNode* b) {
+        if (!a || !b) return false;
+        return a->getZOrder() < b->getZOrder();
+    });
+
+    for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+        auto node = *it;
+        if (!nodeIsRunningVisible(node)) continue;
+        if (auto t = findFirstOfTypeRecursive<T>(node)) {
+            if (nodeIsRunningVisible(t)) return t;
+        }
+    }
+    return nullptr;
+}
 
 namespace kbutil {
     inline std::unordered_set<std::string> s_heldBinds;
 
     inline bool pressedOnce(std::string const& bindID, InvokeBindEvent* e) {
         if (!e) return false;
-
         if (e->isDown()) {
             return s_heldBinds.insert(bindID).second;
         } else {
@@ -61,19 +121,11 @@ namespace kbutil {
 
         std::function<bool(CCNode*)> walk = [&](CCNode* node) -> bool {
             if (!node) return false;
+            if (typeinfo_cast<T*>(node)) return true;
 
-            if (typeinfo_cast<T*>(node)) {
-                return true;
-            }
 
-            auto children = node->getChildren();
-            if (!children) return false;
-
-            CCObject* obj = nullptr;
-            CCARRAY_FOREACH(children, obj) {
-                if (walk(static_cast<CCNode*>(obj))) {
-                    return true;
-                }
+            for (auto ch : safeNodeChildren(node)) {
+                if (walk(ch)) return true;
             }
             return false;
         };
@@ -84,21 +136,18 @@ namespace kbutil {
 
 static CCNode* findByIDRecursive(CCNode* root, std::string const& id) {
     if (!root) return nullptr;
+
     if (root->getID() == id) return root;
 
-    auto children = root->getChildren();
-    if (!children) return nullptr;
-
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        auto child = static_cast<CCNode*>(obj);
-        if (auto found = findByIDRecursive(child, id)) return found;
+    for (auto ch : safeNodeChildren(root)) {
+        if (auto found = findByIDRecursive(ch, id)) return found;
     }
     return nullptr;
 }
 
 static void clickButtonRecursive(CCNode* root, std::string const& menuID, std::string const& buttonID) {
     if (!root) return;
+    if (!nodeLooksAlive(root)) return;
 
     auto menu = findByIDRecursive(root, menuID);
     if (!menu) return;
@@ -107,7 +156,9 @@ static void clickButtonRecursive(CCNode* root, std::string const& menuID, std::s
     if (!btn) return;
 
     if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
-        item->activate();
+        if (item->isEnabled() && item->isVisible()) {
+            item->activate();
+        }
     }
 }
 
@@ -118,56 +169,42 @@ static void clickButton(CCNode* parentLayer, std::string const& menuID, std::str
 static CCMenuItemSpriteExtra* findFirstMenuItemSpriteExtra(CCNode* root) {
     if (!root) return nullptr;
 
-    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) {
-        return item;
-    }
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) return item;
 
-    auto children = root->getChildren();
-    if (!children) return nullptr;
-
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        if (auto found = findFirstMenuItemSpriteExtra(static_cast<CCNode*>(obj))) {
-            return found;
-        }
+    for (auto ch : safeNodeChildren(root)) {
+        if (auto found = findFirstMenuItemSpriteExtra(ch)) return found;
     }
     return nullptr;
 }
 
+
 static bool listIsMapPacks(LevelBrowserLayer* self) {
     if (!self) return false;
+    if (!nodeLooksAlive(self)) return false;
 
     auto listViewNode = findByIDRecursive(self, "list-view");
     auto listView = typeinfo_cast<CustomListView*>(listViewNode);
     if (!listView || !listView->m_tableView || !listView->m_tableView->m_contentLayer) return false;
 
-    auto children = listView->m_tableView->m_contentLayer->getChildren();
-    if (!children) return false;
-
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        if (typeinfo_cast<MapPackCell*>(obj)) return true;
+    for (auto ch : safeNodeChildren(listView->m_tableView->m_contentLayer)) {
+        if (typeinfo_cast<MapPackCell*>(ch)) return true;
     }
     return false;
 }
 
 static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
     if (!self || n <= 0) return false;
+    if (!nodeLooksAlive(self)) return false;
 
     auto listViewNode = findByIDRecursive(self, "list-view");
     auto listView = typeinfo_cast<CustomListView*>(listViewNode);
     if (!listView || !listView->m_tableView || !listView->m_tableView->m_contentLayer) return false;
 
     auto content = listView->m_tableView->m_contentLayer;
-    auto children = content->getChildren();
-    if (!children) return false;
 
     std::vector<MapPackCell*> cells;
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        if (auto c = typeinfo_cast<MapPackCell*>(obj)) {
-            cells.push_back(c);
-        }
+    for (auto ch : safeNodeChildren(content)) {
+        if (auto c = typeinfo_cast<MapPackCell*>(ch)) cells.push_back(c);
     }
 
     if ((int)cells.size() < n) return false;
@@ -177,10 +214,13 @@ static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
     });
 
     auto target = cells[n - 1];
+    if (!target) return false;
 
     if (auto item = findFirstMenuItemSpriteExtra(target)) {
-        item->activate();
-        return true;
+        if (item->isEnabled() && item->isVisible()) {
+            item->activate();
+            return true;
+        }
     }
 
     return false;
@@ -188,20 +228,18 @@ static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
 
 static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     if (!self || n <= 0) return false;
+    if (!nodeLooksAlive(self)) return false;
 
     auto listViewNode = findByIDRecursive(self, "list-view");
     auto listView = typeinfo_cast<CustomListView*>(listViewNode);
     if (!listView || !listView->m_tableView || !listView->m_tableView->m_contentLayer) return false;
 
     auto content = listView->m_tableView->m_contentLayer;
-    auto children = content->getChildren();
-    if (!children) return false;
 
     std::vector<CCNode*> cells;
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        if (typeinfo_cast<LevelCell*>(obj) || typeinfo_cast<LevelListCell*>(obj)) {
-            cells.push_back(static_cast<CCNode*>(obj));
+    for (auto ch : safeNodeChildren(content)) {
+        if (typeinfo_cast<LevelCell*>(ch) || typeinfo_cast<LevelListCell*>(ch)) {
+            cells.push_back(ch);
         }
     }
 
@@ -212,6 +250,7 @@ static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
     });
 
     auto target = cells[n - 1];
+    if (!target) return false;
 
     clickButtonRecursive(target, "main-menu", "view-button");
     return true;
@@ -220,41 +259,34 @@ static bool openNthVisibleListEntry(LevelBrowserLayer* self, int n) {
 static void collectByIDRecursive(CCNode* root, std::string const& id, std::vector<CCNode*>& out) {
     if (!root) return;
 
-    if (root->getID() == id) {
-        out.push_back(root);
-    }
 
-    auto children = root->getChildren();
-    if (!children) return;
+    if (root->getID() == id) out.push_back(root);
 
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        collectByIDRecursive(static_cast<CCNode*>(obj), id, out);
+
+    for (auto ch : safeNodeChildren(root)) {
+        collectByIDRecursive(ch, id, out);
     }
 }
 
 static void clickCurrentLevel(LevelSelectLayer* self) {
     if (!self) return;
+    if (!nodeLooksAlive(self)) return;
 
     auto pages = findByIDRecursive(self, "level-pages");
     if (!pages) return;
 
-    auto children = pages->getChildren();
-    if (!children || children->count() == 0) return;
+    auto children = safeNodeChildren(pages);
+    if (children.empty()) return;
 
     auto win = CCDirector::sharedDirector()->getWinSize();
     CCPoint screenCenterWorld = ccp(win.width * 0.5f, win.height * 0.5f);
-
     CCPoint centerLocal = pages->convertToNodeSpace(screenCenterWorld);
 
     CCNode* bestPage = nullptr;
     float bestDist = std::numeric_limits<float>::infinity();
 
-    CCObject* obj = nullptr;
-    CCARRAY_FOREACH(children, obj) {
-        auto node = typeinfo_cast<CCNode*>(obj);
+    for (auto node : children) {
         if (!node) continue;
-
         if (!findByIDRecursive(node, "level-menu")) continue;
 
         auto sz = node->getContentSize();
@@ -279,7 +311,25 @@ static void clickCurrentLevel(LevelSelectLayer* self) {
     if (!btn) return;
 
     if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
-        item->activate();
+        if (item->isEnabled() && item->isVisible()) item->activate();
+    }
+}
+
+
+static void collectMenuItems(CCNode* root, std::vector<CCMenuItemSpriteExtra*>& out) {
+    if (!root) return;
+    if (!nodeLooksAlive(root)) return;
+    
+    geode::Ref<CCNode> rootHold = root;
+
+
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) {
+        out.push_back(item);
+    }
+
+
+    for (auto ch : safeNodeChildren(root)) {
+        collectMenuItems(ch, out);
     }
 }
 
@@ -724,7 +774,7 @@ $execute {
         "quests-claim-all",
         "Claim All Quests",
         "Claims all available quest rewards",
-        {Keybind::create(KEY_Enter, Modifier::None) },
+        { Keybind::create(KEY_Enter, Modifier::None) },
         "Quests Menu"
     });
 
@@ -806,70 +856,61 @@ $execute {
 class $modify(MyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
-
         kbutil::resetAll();
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "main-menu", "icon-kit-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "main-menu", "icon-kit-button");
             return ListenerResult::Propagate;
         }, "main-menu-open-kit");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "main-menu", "editor-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "main-menu", "editor-button");
             return ListenerResult::Propagate;
         }, "main-menu-open-online");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "main-menu", "play-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "main-menu", "play-button");
             return ListenerResult::Propagate;
         }, "main-menu-play");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "profile-menu", "profile-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "profile-menu", "profile-button");
             return ListenerResult::Propagate;
         }, "main-menu-profile");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "right-side-menu", "daily-chest-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "right-side-menu", "daily-chest-button");
             return ListenerResult::Propagate;
         }, "main-menu-chests");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "bottom-menu", "achievements-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "achievements-button");
             return ListenerResult::Propagate;
         }, "main-menu-achievements");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "bottom-menu", "settings-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "settings-button");
             return ListenerResult::Propagate;
         }, "main-menu-settings");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "bottom-menu", "stats-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "stats-button");
             return ListenerResult::Propagate;
         }, "main-menu-stats");
 
@@ -882,22 +923,19 @@ class $modify(MyMenuLayer, MenuLayer) {
 class $modify(MyGarageLayer, GJGarageLayer) {
     bool init() {
         if (!GJGarageLayer::init()) return false;
-
         kbutil::resetAll();
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GJGarageLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "prev-page-menu", "prev-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "prev-page-menu", "prev-button");
             return ListenerResult::Propagate;
         }, "icon-kit-prev-page");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GJGarageLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "next-page-menu", "next-button");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "next-page-menu", "next-button");
             return ListenerResult::Propagate;
         }, "icon-kit-next-page");
 
@@ -910,102 +948,93 @@ class $modify(MyGarageLayer, GJGarageLayer) {
 class $modify(MyCreatorLayer, CreatorLayer) {
     bool init() {
         if (!CreatorLayer::init()) return false;
-
         kbutil::resetAll();
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-search", event)) {
+        auto guard = [this]() {
+            return kbutil::isLayerActive<CreatorLayer>() && nodeLooksAlive(this);
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-search", event))
                 clickButton(this, "creator-buttons-menu", "search-button");
-            }
             return ListenerResult::Propagate;
         }, "online-search");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-saved", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-saved", event))
                 clickButton(this, "creator-buttons-menu", "saved-button");
-            }
             return ListenerResult::Propagate;
         }, "online-saved");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-create", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-create", event))
                 clickButton(this, "creator-buttons-menu", "create-button");
-            }
             return ListenerResult::Propagate;
         }, "online-create");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-quests", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-quests", event))
                 clickButton(this, "creator-buttons-menu", "quests-button");
-            }
             return ListenerResult::Propagate;
         }, "online-quests");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-daily", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-daily", event))
                 clickButton(this, "creator-buttons-menu", "daily-button");
-            }
             return ListenerResult::Propagate;
         }, "online-daily");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-weekly", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-weekly", event))
                 clickButton(this, "creator-buttons-menu", "weekly-button");
-            }
             return ListenerResult::Propagate;
         }, "online-weekly");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-event", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-event", event))
                 clickButton(this, "creator-buttons-menu", "event-button");
-            }
             return ListenerResult::Propagate;
         }, "online-event");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-gauntlets", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-gauntlets", event))
                 clickButton(this, "creator-buttons-menu", "gauntlets-button");
-            }
             return ListenerResult::Propagate;
         }, "online-gauntlets");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-featured", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-featured", event))
                 clickButton(this, "creator-buttons-menu", "featured-button");
-            }
             return ListenerResult::Propagate;
         }, "online-featured");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-lists", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-lists", event))
                 clickButton(this, "creator-buttons-menu", "lists-button");
-            }
             return ListenerResult::Propagate;
         }, "online-lists");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-paths", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-paths", event))
                 clickButton(this, "creator-buttons-menu", "paths-button");
-            }
             return ListenerResult::Propagate;
         }, "online-paths");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<CreatorLayer>()) return ListenerResult::Propagate;
-            if (kbutil::pressedOnce("online-map-packs", event)) {
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("online-map-packs", event))
                 clickButton(this, "creator-buttons-menu", "map-packs-button");
-            }
             return ListenerResult::Propagate;
         }, "online-map-packs");
 
@@ -1013,98 +1042,73 @@ class $modify(MyCreatorLayer, CreatorLayer) {
     }
 };
 
-// created levels hook (and saved levels hook)
+// created levels hook
 
 class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
     bool init(GJSearchObject* object) {
         if (!LevelBrowserLayer::init(object)) return false;
-
         kbutil::resetAll();
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "my-levels-menu", "my-levels-button");
-            }
+        auto guard = [this]() {
+            return kbutil::isLayerActive<LevelBrowserLayer>() && nodeLooksAlive(this);
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "my-levels-menu", "my-levels-button");
             return ListenerResult::Propagate;
         }, "create-my-levels");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "page-menu", "last-page-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "page-menu", "last-page-button");
             return ListenerResult::Propagate;
         }, "create-last-page");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "delete-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "delete-button");
             return ListenerResult::Propagate;
         }, "saved-delete");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "switch-mode-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "switch-mode-button");
             return ListenerResult::Propagate;
         }, "saved-switch-mode");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "favorite-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "favorite-button");
             return ListenerResult::Propagate;
         }, "saved-favorite");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "search-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "search-button");
             return ListenerResult::Propagate;
         }, "saved-search");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "last-page-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "last-page-button");
             return ListenerResult::Propagate;
         }, "saved-last-page");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-folder", "folder-button");
-            }
-            return ListenerResult::Propagate;
-        }, "saved-folder");
-
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "saved-menu", "folder-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "saved-menu", "folder-button");
             return ListenerResult::Propagate;
         }, "saved-folder");
 
         for (int i = 1; i <= 10; i++) {
             std::string bindID = fmt::format("lists-open-{}", i);
-
-            this->template addEventListener<InvokeBindFilter>([this, i, bindID](InvokeBindEvent* event) {
-                if (!kbutil::isLayerActive<LevelBrowserLayer>()) return ListenerResult::Propagate;
+            this->template addEventListener<InvokeBindFilter>([this, i, bindID, guard](InvokeBindEvent* event) {
+                if (!guard()) return ListenerResult::Propagate;
                 if (kbutil::pressedOnce(bindID, event)) {
                     if (findByIDRecursive(this, "list-view")) {
-                        if (listIsMapPacks(this)) {
-                            openNthVisibleMapPackEntry(this, i);
-                        } else {
-                            openNthVisibleListEntry(this, i);
-                        }
+                        if (listIsMapPacks(this)) openNthVisibleMapPackEntry(this, i);
+                        else openNthVisibleListEntry(this, i);
                     }
                 }
                 return ListenerResult::Propagate;
@@ -1120,62 +1124,51 @@ class $modify(MyLevelBrowserLayer, LevelBrowserLayer) {
 class $modify(MyEditLevelLayer, EditLevelLayer) {
     bool init(GJGameLevel* level) {
         if (!EditLevelLayer::init(level)) return false;
-
         kbutil::resetAll();
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-edit-menu", "play-button");
-            }
+        auto guard = [this]() {
+            return kbutil::isLayerActive<EditLevelLayer>() && nodeLooksAlive(this);
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-edit-menu", "play-button");
             return ListenerResult::Propagate;
         }, "edit-play");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-edit-menu", "edit-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-edit-menu", "edit-button");
             return ListenerResult::Propagate;
         }, "edit-edit");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-edit-menu", "share-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-edit-menu", "share-button");
             return ListenerResult::Propagate;
         }, "edit-upload");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-actions-menu", "delete-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-actions-menu", "delete-button");
             return ListenerResult::Propagate;
         }, "edit-delete");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-actions-menu", "duplicate-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-actions-menu", "duplicate-button");
             return ListenerResult::Propagate;
         }, "edit-duplicate");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "level-actions-menu", "move-to-top-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "level-actions-menu", "move-to-top-button");
             return ListenerResult::Propagate;
         }, "edit-move-to-top");
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<EditLevelLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "folder-menu", "folder-button");
-            }
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "folder-menu", "folder-button");
             return ListenerResult::Propagate;
         }, "edit-folder");
 
@@ -1188,32 +1181,25 @@ class $modify(MyEditLevelLayer, EditLevelLayer) {
 class $modify(MyLevelSelectLayer, LevelSelectLayer) {
     bool init(int page) {
         if (!LevelSelectLayer::init(page)) return false;
-
         kbutil::resetAll();
 
-        this->template addEventListener<InvokeBindFilter>(
-            [this](InvokeBindEvent* event) {
-                if (!kbutil::isLayerActive<LevelSelectLayer>())
-                    return ListenerResult::Propagate;
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<LevelSelectLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
 
-                if (kbutil::pressedOnce("select-play", event)) {
-                    clickCurrentLevel(this);
-                }
-
-                return ListenerResult::Propagate;
-            },
-            "select-play"
-        );
+            if (kbutil::pressedOnce("select-play", event)) clickCurrentLevel(this);
+            return ListenerResult::Propagate;
+        }, "select-play");
 
         return true;
     }
 };
 
 // tower hook
+
 class $modify(MyLevelAreaLayer, LevelAreaLayer) {
     bool init() {
         if (!LevelAreaLayer::init()) return false;
-
         kbutil::resetAll();
 
         auto sceneRoot = []() -> CCNode* {
@@ -1222,9 +1208,7 @@ class $modify(MyLevelAreaLayer, LevelAreaLayer) {
         };
 
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("select-tower", event)) {
-                clickButton(sceneRoot(), "enter-menu", "enter-btn");
-            }
+            if (kbutil::pressedOnce("select-tower", event)) clickButton(sceneRoot(), "enter-menu", "enter-btn");
             return ListenerResult::Propagate;
         }, "select-tower");
 
@@ -1237,46 +1221,34 @@ class $modify(MyLevelAreaLayer, LevelAreaLayer) {
 class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
     bool init(bool returning) {
         if (!LevelAreaInnerLayer::init(returning)) return false;
-
         kbutil::resetAll();
 
         auto sceneRoot = []() -> CCNode* {
             auto scene = CCDirector::sharedDirector()->getRunningScene();
             return scene ? static_cast<CCNode*>(scene) : nullptr;
         };
-
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("select-tower", event)) {
-                clickButton(sceneRoot(), "enter-menu", "enter-btn");
-            }
+            if (kbutil::pressedOnce("select-tower", event)) clickButton(sceneRoot(), "enter-menu", "enter-btn");
             return ListenerResult::Propagate;
         }, "select-tower");
 
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("tower-open-5001", event)) {
-                clickButton(sceneRoot(), "main-menu", "level-5001-button");
-            }
+            if (kbutil::pressedOnce("tower-open-5001", event)) clickButton(sceneRoot(), "main-menu", "level-5001-button");
             return ListenerResult::Propagate;
         }, "tower-open-5001");
 
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("tower-open-5002", event)) {
-                clickButton(sceneRoot(), "main-menu", "level-5002-button");
-            }
+            if (kbutil::pressedOnce("tower-open-5002", event)) clickButton(sceneRoot(), "main-menu", "level-5002-button");
             return ListenerResult::Propagate;
         }, "tower-open-5002");
 
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("tower-open-5003", event)) {
-                clickButton(sceneRoot(), "main-menu", "level-5003-button");
-            }
+            if (kbutil::pressedOnce("tower-open-5003", event)) clickButton(sceneRoot(), "main-menu", "level-5003-button");
             return ListenerResult::Propagate;
         }, "tower-open-5003");
 
         this->template addEventListener<InvokeBindFilter>([sceneRoot](InvokeBindEvent* event) {
-            if (kbutil::pressedOnce("tower-open-5004", event)) {
-                clickButton(sceneRoot(), "main-menu", "level-5004-button");
-            }
+            if (kbutil::pressedOnce("tower-open-5004", event)) clickButton(sceneRoot(), "main-menu", "level-5004-button");
             return ListenerResult::Propagate;
         }, "tower-open-5004");
 
@@ -1289,21 +1261,20 @@ class $modify(MyLevelAreaInnerLayer, LevelAreaInnerLayer) {
 class $modify(MyChallengesPage, ChallengesPage) {
     bool init() {
         if (!ChallengesPage::init()) return false;
-
         kbutil::resetAll();
 
         auto claimQuest = [this](std::string const& questNodeID) {
+            if (!nodeLooksAlive(this)) return;
             auto mainLayer = this->getChildByID("main-layer");
             if (!mainLayer) return;
 
             auto questNode = mainLayer->getChildByID(questNodeID);
-            if (questNode) {
-                clickButtonRecursive(questNode, "claim-menu", "claim-button");
-            }
+            if (questNode) clickButtonRecursive(questNode, "claim-menu", "claim-button");
         };
 
         this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
 
             if (event->isDown()) {
                 claimQuest("top-quest");
@@ -1315,18 +1286,21 @@ class $modify(MyChallengesPage, ChallengesPage) {
 
         this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) claimQuest("top-quest");
             return ListenerResult::Propagate;
         }, "quests-claim-top");
 
         this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) claimQuest("middle-quest");
             return ListenerResult::Propagate;
         }, "quests-claim-mid");
 
         this->template addEventListener<InvokeBindFilter>([this, claimQuest](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<ChallengesPage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) claimQuest("bottom-quest");
             return ListenerResult::Propagate;
         }, "quests-claim-bot");
@@ -1338,74 +1312,148 @@ class $modify(MyChallengesPage, ChallengesPage) {
 // gauntlet select hook
 
 class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
-    bool init(int unused) {
-        if (!GauntletSelectLayer::init(unused)) return false;
-
+    bool init(int p0) {
+        if (!GauntletSelectLayer::init(p0)) return false;
         kbutil::resetAll();
 
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<GauntletSelectLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "scroll-buttons-menu", "left-button");
+        auto canOperate = [this]() {
+            auto front = getFrontmostLayerOfType<GauntletSelectLayer>();
+            if (front != this) return false;
+
+            return nodeIsRunningVisible(this)
+                && this->m_scrollLayer != nullptr
+                && nodeIsRunningVisible(this->m_scrollLayer);
+        };
+
+        auto activateGauntletAtIndex = [this, canOperate](int idxZeroBased) {
+            if (!canOperate()) return;
+
+            int pageNum = this->m_scrollLayer->m_page;
+            auto page = this->m_scrollLayer->getPage(pageNum);
+            if (!nodeIsRunningVisible(page)) return;
+
+            geode::Ref<CCNode> pageHold = page;
+
+            std::vector<CCMenuItemSpriteExtra*> items;
+            collectMenuItems(page, items);
+
+            items.erase(
+                std::remove_if(items.begin(), items.end(), [](CCMenuItemSpriteExtra* it) {
+                    if (!it) return true;
+                    if (!nodeIsRunningVisible(it)) return true;
+
+
+                    auto parent = it->getParent();
+                    if (!nodeIsRunningVisible(parent)) return true;
+
+
+                    if (!it->isVisible()) return true;
+                    if (!it->isEnabled()) return true;
+                    return !typeinfo_cast<CCMenu*>(parent);
+                }),
+                items.end()
+            );
+
+            if (items.empty()) return;
+
+            std::sort(items.begin(), items.end(), [](CCMenuItemSpriteExtra* a, CCMenuItemSpriteExtra* b) {
+                if (!a || !b) return false;
+                if (a->getPositionX() == b->getPositionX())
+                    return a->getPositionY() > b->getPositionY();
+                return a->getPositionX() < b->getPositionX();
+            });
+
+            if (idxZeroBased < 0 || idxZeroBased >= static_cast<int>(items.size())) return;
+
+            auto target = items[idxZeroBased];
+            if (!nodeIsRunningVisible(target)) return;
+            target->activate();
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, canOperate](InvokeBindEvent* e) {
+            if (!canOperate()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("gauntlet-left", e) && this->m_leftButton && nodeIsRunningVisible(this->m_leftButton)) {
+                this->m_leftButton->activate();
             }
             return ListenerResult::Propagate;
         }, "gauntlet-left");
-        
-        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
-            if (!kbutil::isLayerActive<GauntletSelectLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "scroll-buttons-menu", "right-button");
+
+        this->template addEventListener<InvokeBindFilter>([this, canOperate](InvokeBindEvent* e) {
+            if (!canOperate()) return ListenerResult::Propagate;
+            if (kbutil::pressedOnce("gauntlet-right", e) && this->m_rightButton && nodeIsRunningVisible(this->m_rightButton)) {
+                this->m_rightButton->activate();
             }
             return ListenerResult::Propagate;
         }, "gauntlet-right");
+
+        this->template addEventListener<InvokeBindFilter>([activateGauntletAtIndex](InvokeBindEvent* e) {
+            if (kbutil::pressedOnce("gauntlet-1", e)) activateGauntletAtIndex(0);
+            return ListenerResult::Propagate;
+        }, "gauntlet-1");
+
+        this->template addEventListener<InvokeBindFilter>([activateGauntletAtIndex](InvokeBindEvent* e) {
+            if (kbutil::pressedOnce("gauntlet-2", e)) activateGauntletAtIndex(1);
+            return ListenerResult::Propagate;
+        }, "gauntlet-2");
+
+        this->template addEventListener<InvokeBindFilter>([activateGauntletAtIndex](InvokeBindEvent* e) {
+            if (kbutil::pressedOnce("gauntlet-3", e)) activateGauntletAtIndex(2);
+            return ListenerResult::Propagate;
+        }, "gauntlet-3");
+
+        this->template addEventListener<InvokeBindFilter>([activateGauntletAtIndex](InvokeBindEvent* e) {
+            if (kbutil::pressedOnce("gauntlet-4", e)) activateGauntletAtIndex(3);
+            return ListenerResult::Propagate;
+        }, "gauntlet-4");
+
+        this->template addEventListener<InvokeBindFilter>([activateGauntletAtIndex](InvokeBindEvent* e) {
+            if (kbutil::pressedOnce("gauntlet-5", e)) activateGauntletAtIndex(4);
+            return ListenerResult::Propagate;
+        }, "gauntlet-5");
 
         return true;
     }
 };
 
+// gauntlet hook
+
 class $modify(MyGauntletLayer, GauntletLayer) {
     bool init(GauntletType type) {
         if (!GauntletLayer::init(type)) return false;
-
         kbutil::resetAll();
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "levels-menu", "level-1");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "levels-menu", "level-1");
             return ListenerResult::Propagate;
         }, "gauntlet-1");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "levels-menu", "level-2");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "levels-menu", "level-2");
             return ListenerResult::Propagate;
         }, "gauntlet-2");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "levels-menu", "level-3");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "levels-menu", "level-3");
             return ListenerResult::Propagate;
         }, "gauntlet-3");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "levels-menu", "level-4");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "levels-menu", "level-4");
             return ListenerResult::Propagate;
         }, "gauntlet-4");
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GauntletLayer>()) return ListenerResult::Propagate;
-            if (event->isDown()) {
-                clickButton(this, "levels-menu", "level-5");
-            }
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "levels-menu", "level-5");
             return ListenerResult::Propagate;
         }, "gauntlet-5");
 
