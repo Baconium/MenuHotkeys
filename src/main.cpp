@@ -13,6 +13,7 @@
 #include <Geode/modify/ChallengesPage.hpp>
 #include <Geode/modify/GauntletSelectLayer.hpp>
 #include <Geode/modify/GauntletLayer.hpp>
+#include <Geode/modify/ProfilePage.hpp>
 
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
@@ -315,7 +316,6 @@ static void clickCurrentLevel(LevelSelectLayer* self) {
     }
 }
 
-
 static void collectMenuItems(CCNode* root, std::vector<CCMenuItemSpriteExtra*>& out) {
     if (!root) return;
     if (!nodeLooksAlive(root)) return;
@@ -330,6 +330,18 @@ static void collectMenuItems(CCNode* root, std::vector<CCMenuItemSpriteExtra*>& 
 
     for (auto ch : safeNodeChildren(root)) {
         collectMenuItems(ch, out);
+    }
+}
+
+static void clickButtonDirect(CCNode* root, std::string const& buttonID) {
+    if (!root) return;
+
+    auto btn = findByIDRecursive(root, buttonID);
+    
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
+        if (item->isVisible() && item->isEnabled()) {
+            item->activate();
+        }
     }
 }
 
@@ -849,6 +861,86 @@ $execute {
             "Created Levels Menu"
         });
     }
+
+    manager->registerBindable({
+        "profile-message",
+        "Messages",
+        "Opens the messages menu in the profile page",
+        { Keybind::create(KEY_M, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-friend",
+        "Friends",
+        "Opens the friends menu in the profile page",
+        { Keybind::create(KEY_F, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-requests",
+        "Requests",
+        "Opens the requests menu in the profile page",
+        { Keybind::create(KEY_R, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-settings",
+        "Settings",
+        "Opens the settings menu in the profile page",
+        { Keybind::create(KEY_S, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-next-page",
+        "Next Page",
+        "Goes to the next page in the profile page",
+        { Keybind::create(KEY_Right, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-prev-page",
+        "Previous Page",
+        "Goes to the previous page in the profile page",
+        { Keybind::create(KEY_Left, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-comment",
+        "Comment",
+        "Opens the comment menu in the profile page",
+        { Keybind::create(KEY_C, Modifier::Control) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-comment-history",
+        "Comment History",
+        "Opens the comment history menu in the profile page",
+        { Keybind::create(KEY_C, Modifier::None) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-refresh",
+        "Refresh",
+        "Refreshes the profile page",
+        { Keybind::create(KEY_R, Modifier::Control) },
+        "Profile Menu"
+    });
+
+    manager->registerBindable({
+        "profile-info",
+        "Info",
+        "Opens the info menu in the profile page",
+        { Keybind::create(KEY_I, Modifier::None) },
+        "Profile Menu"
+    });
 }
 
 // main menu hook
@@ -1456,6 +1548,88 @@ class $modify(MyGauntletLayer, GauntletLayer) {
             if (event->isDown()) clickButton(this, "levels-menu", "level-5");
             return ListenerResult::Propagate;
         }, "gauntlet-5");
+
+        return true;
+    }
+};
+
+// profile page hook
+
+class $modify(MyProfilePage, ProfilePage) {
+    bool init(int accountID, bool ownProfile) {
+        if (!ProfilePage::init(accountID, ownProfile)) return false;
+        
+        kbutil::resetAll();
+        
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "message-button");
+            return ListenerResult::Propagate;
+        }, "profile-message");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "friend-button");
+            return ListenerResult::Propagate;
+        }, "profile-friend");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "requests-button");
+            return ListenerResult::Propagate;
+        }, "profile-requests");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "bottom-menu", "settings-button");
+            return ListenerResult::Propagate;
+        }, "profile-settings");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "next-page-button");
+            return ListenerResult::Propagate;
+        }, "profile-next-page");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "prev-page-button");
+            return ListenerResult::Propagate;
+        }, "profile-prev-page");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "comment-button");
+            return ListenerResult::Propagate;
+        }, "profile-comment");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "comment-history-button");
+            return ListenerResult::Propagate;
+        }, "profile-comment-history");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "refresh-button");
+            return ListenerResult::Propagate;
+        }, "profile-refresh");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<ProfilePage>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) clickButtonDirect(this, "info-button");
+            return ListenerResult::Propagate;
+        }, "profile-info");
 
         return true;
     }
