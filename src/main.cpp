@@ -454,6 +454,38 @@ $execute {
     });
 
     manager->registerBindable({
+        "rewards-open-left",
+        "Open Left Chest",
+        "Opens the left rewards chest",
+        { Keybind::create(KEY_Left, Modifier::None) },
+        "Rewards Page"
+    });
+
+    manager->registerBindable({
+        "rewards-open-right",
+        "Open Right Chest",
+        "Opens the right rewards chest",
+        { Keybind::create(KEY_Right, Modifier::None) },
+        "Rewards Page"
+    });
+
+    manager->registerBindable({
+        "rewards-open-both",
+        "Open Both Chests",
+        "Opens both rewards chests if possible",
+        { Keybind::create(KEY_Up, Modifier::None) },
+        "Rewards Page"
+    });
+
+    manager->registerBindable({
+        "rewards-claim",
+        "Claim Reward",
+        "Press Enter or Escape to claim the reward",
+        { Keybind::create(KEY_Enter, Modifier::None), Keybind::create(KEY_Escape, Modifier::None) },
+        "Reward Unlock"
+    });
+
+    manager->registerBindable({
         "gauntlet-left",
         "Previous Page",
         "Goes back a page in the gauntlets menu",
