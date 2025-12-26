@@ -195,18 +195,6 @@ static void clickButton(CCNode* parentLayer, std::string const& menuID, std::str
     clickButtonRecursive(parentLayer, menuID, buttonID);
 }
 
-static CCMenuItemSpriteExtra* findFirstMenuItemSpriteExtra(CCNode* root) {
-    if (!root) return nullptr;
-
-    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) return item;
-
-    for (auto ch : safeNodeChildren(root)) {
-        if (auto found = findFirstMenuItemSpriteExtra(ch)) return found;
-    }
-    return nullptr;
-}
-
-
 static bool listIsMapPacks(LevelBrowserLayer* self) {
     if (!self) return false;
     if (!nodeLooksAlive(self)) return false;
@@ -219,6 +207,18 @@ static bool listIsMapPacks(LevelBrowserLayer* self) {
         if (typeinfo_cast<MapPackCell*>(ch)) return true;
     }
     return false;
+}
+
+
+static CCMenuItemSpriteExtra* findFirstMenuItemSpriteExtra(CCNode* root) {
+    if (!root) return nullptr;
+
+    if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) return item;
+
+    for (auto ch : safeNodeChildren(root)) {
+        if (auto found = findFirstMenuItemSpriteExtra(ch)) return found;
+    }
+    return nullptr;
 }
 
 static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
@@ -348,14 +348,10 @@ static void clickCurrentLevel(LevelSelectLayer* self) {
 static void collectMenuItems(CCNode* root, std::vector<CCMenuItemSpriteExtra*>& out) {
     if (!root) return;
     if (!nodeLooksAlive(root)) return;
-    
-    geode::Ref<CCNode> rootHold = root;
-
 
     if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(root)) {
         out.push_back(item);
     }
-
 
     for (auto ch : safeNodeChildren(root)) {
         collectMenuItems(ch, out);
@@ -1046,81 +1042,11 @@ $execute {
         "search-clear",
         "Clear Search",
         "Clears the current search in the search menu",
-        { Keybind::create(KEY_Enter, Modifier::Control) },
+        { Keybind::create(KEY_Delete, Modifier::Control) },
         "Search Menu"
     });
 
-    manager->registerBindable({
-        "quick-friends",
-        "Friends",
-        "Searches for levels made by your friends in the search menu",
-        { Keybind::create(KEY_F, Modifier::Control) },
-        "Search Menu"
-    });
 
-    manager->registerBindable({
-        "quick-followed",
-        "Followed",
-        "Searches for levels made by people you follow in the search menu",
-        { Keybind::create(KEY_F, Modifier::Control | Modifier::Shift) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-downloaded",
-        "Most Downloaded",
-        "Searches for the most downloaded levels in the search menu",
-        { Keybind::create(KEY_D, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-liked",
-        "Most Liked",
-        "Searches for the most liked levels in the search menu",
-        { Keybind::create(KEY_L, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-sent",
-        "Sent",
-        "Searches for levels sent by moderators in the search menu",
-        { Keybind::create(KEY_S, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-trending",
-        "Trending",
-        "Searches for trending levels in the search menu",
-        { Keybind::create(KEY_T, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-recent",
-        "Recent",
-        "TO THE RECENT TAAAAAAB -evw",
-        { Keybind::create(KEY_R, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-magic",
-        "Magic",
-        "Searches for fancy potentially rateworthy levels in the search menu",
-        { Keybind::create(KEY_M, Modifier::Control) },
-        "Search Menu"
-    });
-
-    manager->registerBindable({
-        "quick-awarded",
-        "Awarded",
-        "Searches for rated levels in the search menu",
-        { Keybind::create(KEY_A, Modifier::Control) },
-        "Search Menu"
-    });
 }
 
 // main menu hook
@@ -1620,8 +1546,6 @@ class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
             auto page = this->m_scrollLayer->getPage(pageNum);
             if (!nodeIsRunningVisible(page)) return;
 
-            geode::Ref<CCNode> pageHold = page;
-
             std::vector<CCMenuItemSpriteExtra*> items;
             collectMenuItems(page, items);
 
@@ -1909,23 +1833,20 @@ class $modify(MyDropDownLayer, GJDropDownLayer) {
     }
 };
 
+// level search hook
+
 class $modify(MyLevelSearchLayer, LevelSearchLayer) {
     struct Fields {
-        bool m_ctrlHeld = false;
+        bool m_ctrlHeld  = false;
         bool m_shiftHeld = false;
+        bool m_altHeld   = false;
     };
 
     bool init(int p0) {
-        log::info("MyLevelSearchLayer::init called!");
         if (!LevelSearchLayer::init(p0)) return false;
         kbutil::resetAll();
 
-        // 2. Also enable it here just in case
         this->setKeyboardEnabled(true);
-        log::info("MyLevelSearchLayer::init - set keyboard enabled");
-        
-        // Schedule the auto-focus for the next frame to ensure full initialization
-        // Use a longer delay (0.05s instead of 0.01s) to avoid conflicts with keybind event processing
         this->scheduleOnce(schedule_selector(MyLevelSearchLayer::doAutoFocus), 0.05f);
 
         auto guard = [this]() {
@@ -1949,54 +1870,80 @@ class $modify(MyLevelSearchLayer, LevelSearchLayer) {
             if (event->isDown()) clickButton(this, "search-button-menu", "clear-search-button");
             return ListenerResult::Propagate;
         }, "search-clear");
-        
-        auto bindQuick = [this, guard](std::string const& bindID, std::string const& btnID) {
-            this->template addEventListener<InvokeBindFilter>([this, guard, btnID](InvokeBindEvent* event) {
-                if (!guard()) return ListenerResult::Propagate;
-                if (event->isDown()) clickButton(this, "quick-search-menu", btnID);
-                return ListenerResult::Propagate;
-            }, bindID);
-        };
-
-        bindQuick("quick-downloaded", "most-downloaded-button");
-        bindQuick("quick-liked",      "most-liked-button");
-        bindQuick("quick-sent",       "sent-button");
-        bindQuick("quick-trending",   "trending-button");
-        bindQuick("quick-recent",     "recent-button");
-        bindQuick("quick-magic",      "magic-button");
-        bindQuick("quick-awarded",    "awarded-button");
-        bindQuick("quick-followed",   "followed-button");
-        bindQuick("quick-friends",    "friends-button");
 
         return true;
     }
-    
+
     void doAutoFocus(float) {
-        log::info("doAutoFocus: Attempting to auto-focus search-bar...");
         auto searchBar = typeinfo_cast<CCTextInputNode*>(this->getChildByID("search-bar"));
-        if (searchBar) {
-            log::info("doAutoFocus: Found search-bar, setting m_selected=true");
-            searchBar->m_selected = true;
-            
-            // Try to attach IME to the internal text field
-            auto textField = findFirstOfTypeRecursive<CCTextFieldTTF>(searchBar);
-            if (textField) {
-                log::info("doAutoFocus: Found text field, calling attachWithIME()");
-                textField->attachWithIME();
-            }
-        } else {
-            log::info("doAutoFocus: ERROR - search-bar not found!");
+        if (!searchBar) return;
+
+        searchBar->m_selected = true;
+
+        if (searchBar->m_textField) {
+            searchBar->m_textField->attachWithIME();
+            return;
+        }
+
+        if (auto textField = findFirstOfTypeRecursive<CCTextFieldTTF>(searchBar)) {
+            textField->attachWithIME();
         }
     }
 
-    void keyUp(enumKeyCodes key) {
-        if (key == KEY_Control) m_fields->m_ctrlHeld = false;
-        if (key == KEY_Shift)   m_fields->m_shiftHeld = false;
-        LevelSearchLayer::keyUp(key);
+    Modifier currentMods() {
+        int mods = 0;
+        if (m_fields->m_ctrlHeld)  mods |= (int)Modifier::Control;
+        if (m_fields->m_shiftHeld) mods |= (int)Modifier::Shift;
+        if (m_fields->m_altHeld)   mods |= (int)Modifier::Alt;
+        return (Modifier)mods;
     }
 
-    void keyDown(enumKeyCodes key) {
-        // Pass through to parent
+    bool shouldForward(enumKeyCodes key, Modifier mods) {
+
+        if ((int)mods != 0) return true;
+
+        switch (key) {
+            case KEY_Enter:
+            case KEY_Escape:
+            case KEY_Tab:
+            case KEY_Left:
+            case KEY_Right:
+            case KEY_Up:
+            case KEY_Down:
+            case KEY_Delete:
+            case KEY_Backspace:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    void forwardToKeybinds(enumKeyCodes key, bool isDown) {
+        auto mods = currentMods();
+        if (!shouldForward(key, mods)) return;
+
+        PressBindEvent(Keybind::create(key, mods), isDown).post();
+    }
+
+    void keyDown(enumKeyCodes key) override {
+
+        if (key == KEY_Control) m_fields->m_ctrlHeld  = true;
+        if (key == KEY_Shift)   m_fields->m_shiftHeld = true;
+        if (key == KEY_Alt)     m_fields->m_altHeld   = true;
+
+        forwardToKeybinds(key, true);
+
         LevelSearchLayer::keyDown(key);
+    }
+
+    void keyUp(enumKeyCodes key) override {
+
+        forwardToKeybinds(key, false);
+
+        if (key == KEY_Control) m_fields->m_ctrlHeld  = false;
+        if (key == KEY_Shift)   m_fields->m_shiftHeld = false;
+        if (key == KEY_Alt)     m_fields->m_altHeld   = false;
+
+        LevelSearchLayer::keyUp(key);
     }
 };
