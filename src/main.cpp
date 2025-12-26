@@ -1,6 +1,5 @@
 #include <Geode/Geode.hpp>
 
-
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/GJGarageLayer.hpp>
 #include <Geode/modify/CreatorLayer.hpp>
@@ -14,6 +13,8 @@
 #include <Geode/modify/GauntletSelectLayer.hpp>
 #include <Geode/modify/GauntletLayer.hpp>
 #include <Geode/modify/ProfilePage.hpp>
+#include <Geode/modify/GJDropDownLayer.hpp>
+#include <Geode/modify/LevelSearchLayer.hpp>
 
 #include <Geode/binding/CustomListView.hpp>
 #include <Geode/binding/TableView.hpp>
@@ -21,6 +22,7 @@
 #include <Geode/binding/LevelListCell.hpp>
 #include <Geode/binding/MapPackCell.hpp>
 #include <Geode/binding/ChallengeNode.hpp>
+#include <Geode/binding/CCTextInputNode.hpp>
 
 #include <geode.custom-keybinds/include/Keybinds.hpp>
 
@@ -35,6 +37,7 @@
 
 using namespace geode::prelude;
 using namespace keybinds;
+using namespace cocos2d;
 
 // helpers
 
@@ -115,6 +118,30 @@ namespace kbutil {
         s_heldBinds.clear();
     }
 
+    static bool isTopLayer(CCNode* layer) {
+
+        auto scene = CCDirector::sharedDirector()->getRunningScene();
+        if (!scene || !layer) return false;
+
+        auto children = scene->getChildren();
+        if (children && children->count() > 0) {
+            CCObject* obj;
+            CCARRAY_FOREACH(children, obj) {
+                auto child = typeinfo_cast<CCNode*>(obj);
+                if (!child) continue;
+
+                if ((typeinfo_cast<GJDropDownLayer*>(child) || typeinfo_cast<FLAlertLayer*>(child)) 
+                    && child->isVisible()) {
+                    
+                    return layer == child;
+                }
+            }
+        }
+
+    auto top = children->lastObject();
+    return top == layer;
+}
+
     template <typename T>
     inline bool isLayerActive() {
         auto scene = CCDirector::sharedDirector()->getRunningScene();
@@ -158,6 +185,7 @@ static void clickButtonRecursive(CCNode* root, std::string const& menuID, std::s
 
     if (auto item = typeinfo_cast<CCMenuItemSpriteExtra*>(btn)) {
         if (item->isEnabled() && item->isVisible()) {
+            kbutil::resetAll();
             item->activate();
         }
     }
@@ -219,6 +247,7 @@ static bool openNthVisibleMapPackEntry(LevelBrowserLayer* self, int n) {
 
     if (auto item = findFirstMenuItemSpriteExtra(target)) {
         if (item->isEnabled() && item->isVisible()) {
+            kbutil::resetAll();
             item->activate();
             return true;
         }
@@ -850,7 +879,6 @@ $execute {
         KEY_One, KEY_Two, KEY_Three, KEY_Four, KEY_Five,
         KEY_Six, KEY_Seven, KEY_Eight, KEY_Nine, KEY_Zero
     };
-
     for (int idx = 0; idx < 10; idx++) {
         int entryNum = idx + 1;
         manager->registerBindable({
@@ -941,6 +969,158 @@ $execute {
         { Keybind::create(KEY_I, Modifier::None) },
         "Profile Menu"
     });
+
+    manager->registerBindable({
+        "settings-account",
+        "Account",
+        "Opens the account menu in the settings menu",
+        { Keybind::create(KEY_A, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-how-to-play",
+        "How to Play",
+        "Opens the how to play menu in the settings menu",
+        { Keybind::create(KEY_H, Modifier::Control) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-options",
+        "Options",
+        "Opens the options menu in the settings menu",
+        { Keybind::create(KEY_O, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-graphics",
+        "Graphics",
+        "Opens the graphics menu in the settings menu",
+        { Keybind::create(KEY_G, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-rate",
+        "Rate",
+        "Opens the rate menu in the settings menu",
+        { Keybind::create(KEY_R, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-songs",
+        "Songs",
+        "Opens the songs menu in the settings menu",
+        { Keybind::create(KEY_S, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "settings-help",
+        "Help",
+        "Opens the help menu in the settings menu",
+        { Keybind::create(KEY_H, Modifier::None) },
+        "Settings Menu"
+    });
+
+    manager->registerBindable({
+        "search-level",
+        "Search Level",
+        "Searches for levels in the search menu",
+        { Keybind::create(KEY_Enter, Modifier::None) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "search-user",
+        "Search User",
+        "Searches for users in the search menu",
+        { Keybind::create(KEY_Enter, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "search-clear",
+        "Clear Search",
+        "Clears the current search in the search menu",
+        { Keybind::create(KEY_Enter, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-friends",
+        "Friends",
+        "Searches for levels made by your friends in the search menu",
+        { Keybind::create(KEY_F, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-followed",
+        "Followed",
+        "Searches for levels made by people you follow in the search menu",
+        { Keybind::create(KEY_F, Modifier::Control | Modifier::Shift) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-downloaded",
+        "Most Downloaded",
+        "Searches for the most downloaded levels in the search menu",
+        { Keybind::create(KEY_D, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-liked",
+        "Most Liked",
+        "Searches for the most liked levels in the search menu",
+        { Keybind::create(KEY_L, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-sent",
+        "Sent",
+        "Searches for levels sent by moderators in the search menu",
+        { Keybind::create(KEY_S, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-trending",
+        "Trending",
+        "Searches for trending levels in the search menu",
+        { Keybind::create(KEY_T, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-recent",
+        "Recent",
+        "TO THE RECENT TAAAAAAB -evw",
+        { Keybind::create(KEY_R, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-magic",
+        "Magic",
+        "Searches for fancy potentially rateworthy levels in the search menu",
+        { Keybind::create(KEY_M, Modifier::Control) },
+        "Search Menu"
+    });
+
+    manager->registerBindable({
+        "quick-awarded",
+        "Awarded",
+        "Searches for rated levels in the search menu",
+        { Keybind::create(KEY_A, Modifier::Control) },
+        "Search Menu"
+    });
 }
 
 // main menu hook
@@ -948,10 +1128,13 @@ $execute {
 class $modify(MyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
+        
         kbutil::resetAll();
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate; 
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "main-menu", "icon-kit-button");
             return ListenerResult::Propagate;
@@ -959,6 +1142,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "main-menu", "editor-button");
             return ListenerResult::Propagate;
@@ -966,6 +1151,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "main-menu", "play-button");
             return ListenerResult::Propagate;
@@ -973,6 +1160,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "profile-menu", "profile-button");
             return ListenerResult::Propagate;
@@ -980,6 +1169,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "right-side-menu", "daily-chest-button");
             return ListenerResult::Propagate;
@@ -987,6 +1178,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "bottom-menu", "achievements-button");
             return ListenerResult::Propagate;
@@ -994,6 +1187,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "bottom-menu", "settings-button");
             return ListenerResult::Propagate;
@@ -1001,6 +1196,8 @@ class $modify(MyMenuLayer, MenuLayer) {
 
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<MenuLayer>()) return ListenerResult::Propagate;
+            if (kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!kbutil::isTopLayer(this)) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
             if (event->isDown()) clickButton(this, "bottom-menu", "stats-button");
             return ListenerResult::Propagate;
@@ -1016,7 +1213,6 @@ class $modify(MyGarageLayer, GJGarageLayer) {
     bool init() {
         if (!GJGarageLayer::init()) return false;
         kbutil::resetAll();
-
         this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
             if (!kbutil::isLayerActive<GJGarageLayer>()) return ListenerResult::Propagate;
             if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
@@ -1459,12 +1655,14 @@ class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
 
             auto target = items[idxZeroBased];
             if (!nodeIsRunningVisible(target)) return;
+            kbutil::resetAll();
             target->activate();
         };
 
         this->template addEventListener<InvokeBindFilter>([this, canOperate](InvokeBindEvent* e) {
             if (!canOperate()) return ListenerResult::Propagate;
             if (kbutil::pressedOnce("gauntlet-left", e) && this->m_leftButton && nodeIsRunningVisible(this->m_leftButton)) {
+                kbutil::resetAll();
                 this->m_leftButton->activate();
             }
             return ListenerResult::Propagate;
@@ -1473,6 +1671,7 @@ class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
         this->template addEventListener<InvokeBindFilter>([this, canOperate](InvokeBindEvent* e) {
             if (!canOperate()) return ListenerResult::Propagate;
             if (kbutil::pressedOnce("gauntlet-right", e) && this->m_rightButton && nodeIsRunningVisible(this->m_rightButton)) {
+                kbutil::resetAll();
                 this->m_rightButton->activate();
             }
             return ListenerResult::Propagate;
@@ -1632,5 +1831,172 @@ class $modify(MyProfilePage, ProfilePage) {
         }, "profile-info");
 
         return true;
+    }
+};
+
+// settings hook
+
+class $modify(MyDropDownLayer, GJDropDownLayer) {
+    bool init(char const* title, float unk1, bool unk2) {
+        if (!GJDropDownLayer::init(title, unk1, unk2)) return false;
+        
+        kbutil::resetAll();
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "account-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-account");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "how-to-play-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-how-to-play");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "options-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-options");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "graphics-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-graphics");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "rate-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-rate");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "songs-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-songs");
+
+        this->template addEventListener<InvokeBindFilter>([this](InvokeBindEvent* event) {
+            if (!kbutil::isLayerActive<GJDropDownLayer>()) return ListenerResult::Propagate;
+            if (!nodeLooksAlive(this)) return ListenerResult::Propagate;
+            if (event->isDown()) {
+                clickButton(this, "options-menu", "help-button");
+            }
+            return ListenerResult::Propagate;
+        }, "settings-help");
+
+        return true;
+    }
+};
+
+class $modify(MyLevelSearchLayer, LevelSearchLayer) {
+    struct Fields {
+        bool m_ctrlHeld = false;
+        bool m_shiftHeld = false;
+    };
+
+    bool init(int p0) {
+        log::info("MyLevelSearchLayer::init called!");
+        if (!LevelSearchLayer::init(p0)) return false;
+        kbutil::resetAll();
+
+        // 2. Also enable it here just in case
+        this->setKeyboardEnabled(true);
+        log::info("MyLevelSearchLayer::init - set keyboard enabled");
+        
+        // Schedule the auto-focus for the next frame to ensure full initialization
+        // Use a longer delay (0.05s instead of 0.01s) to avoid conflicts with keybind event processing
+        this->scheduleOnce(schedule_selector(MyLevelSearchLayer::doAutoFocus), 0.05f);
+
+        auto guard = [this]() {
+            return kbutil::isLayerActive<LevelSearchLayer>() && nodeLooksAlive(this);
+        };
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "search-button-menu", "search-level-button");
+            return ListenerResult::Propagate;
+        }, "search-level");
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "search-button-menu", "search-user-button");
+            return ListenerResult::Propagate;
+        }, "search-user");
+
+        this->template addEventListener<InvokeBindFilter>([this, guard](InvokeBindEvent* event) {
+            if (!guard()) return ListenerResult::Propagate;
+            if (event->isDown()) clickButton(this, "search-button-menu", "clear-search-button");
+            return ListenerResult::Propagate;
+        }, "search-clear");
+        
+        auto bindQuick = [this, guard](std::string const& bindID, std::string const& btnID) {
+            this->template addEventListener<InvokeBindFilter>([this, guard, btnID](InvokeBindEvent* event) {
+                if (!guard()) return ListenerResult::Propagate;
+                if (event->isDown()) clickButton(this, "quick-search-menu", btnID);
+                return ListenerResult::Propagate;
+            }, bindID);
+        };
+
+        bindQuick("quick-downloaded", "most-downloaded-button");
+        bindQuick("quick-liked",      "most-liked-button");
+        bindQuick("quick-sent",       "sent-button");
+        bindQuick("quick-trending",   "trending-button");
+        bindQuick("quick-recent",     "recent-button");
+        bindQuick("quick-magic",      "magic-button");
+        bindQuick("quick-awarded",    "awarded-button");
+        bindQuick("quick-followed",   "followed-button");
+        bindQuick("quick-friends",    "friends-button");
+
+        return true;
+    }
+    
+    void doAutoFocus(float) {
+        log::info("doAutoFocus: Attempting to auto-focus search-bar...");
+        auto searchBar = typeinfo_cast<CCTextInputNode*>(this->getChildByID("search-bar"));
+        if (searchBar) {
+            log::info("doAutoFocus: Found search-bar, setting m_selected=true");
+            searchBar->m_selected = true;
+            
+            // Try to attach IME to the internal text field
+            auto textField = findFirstOfTypeRecursive<CCTextFieldTTF>(searchBar);
+            if (textField) {
+                log::info("doAutoFocus: Found text field, calling attachWithIME()");
+                textField->attachWithIME();
+            }
+        } else {
+            log::info("doAutoFocus: ERROR - search-bar not found!");
+        }
+    }
+
+    void keyUp(enumKeyCodes key) {
+        if (key == KEY_Control) m_fields->m_ctrlHeld = false;
+        if (key == KEY_Shift)   m_fields->m_shiftHeld = false;
+        LevelSearchLayer::keyUp(key);
+    }
+
+    void keyDown(enumKeyCodes key) {
+        // Pass through to parent
+        LevelSearchLayer::keyDown(key);
     }
 };
