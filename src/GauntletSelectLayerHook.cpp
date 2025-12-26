@@ -23,8 +23,16 @@ class $modify(MyGauntletSelectLayer, GauntletSelectLayer) {
         auto activateGauntletAtIndex = [this, canOperate](int idxZeroBased) {
             if (!canOperate()) return;
 
-            int pageNum = this->m_scrollLayer->m_page;
-            auto page = this->m_scrollLayer->getPage(pageNum);
+            auto scroll = this->m_scrollLayer;
+            if (!scroll) return;
+            if (!nodeIsRunningVisible(scroll)) return;
+
+            int pageNum = scroll->m_page;
+            int totalPages = scroll->getTotalPages();
+            if (pageNum < 0 || pageNum >= totalPages) return;
+
+            auto page = scroll->getPage(pageNum);
+            if (!page) return;
             if (!nodeIsRunningVisible(page)) return;
 
             std::vector<CCMenuItemSpriteExtra*> items;
