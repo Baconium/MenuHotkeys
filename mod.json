@@ -13,14 +13,13 @@
     "description": "Adds hotkeys for almost every menu in game, no mouse required!",
     "tags": [
         "utility", 
-        "hotkeys", 
-        "qol"
+        "enhancement"
     ],
     "dependencies": [
         {
             "id": "geode.custom-keybinds",
-            "version": ">=1.0.0",
-            "required": true
+            "version": ">=1.11.0",
+            "importance": "required"
         }
     ]
 }
